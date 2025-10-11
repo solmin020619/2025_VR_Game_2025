@@ -1,41 +1,38 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class PlayerHealth : MonoBehaviour
 {
     public int maxHP = 100;
-    private int currentHP;
+    [HideInInspector] public int currentHP;
+    public bool isDead { get; private set; }   // 외부에서 읽기 가능, 내부에서만 수정
 
-    // Start is called before the first frame update
-    void Start() => currentHP = maxHP;
+    public float invincibleTime = 0.3f;
+    private float lastHitTime = -999f;
 
-    void OnTriggerEnter(Collider other)
+    void Start()
     {
-        if (other.CompareTag("Trap"))
-        {
-            TakeDamage(20);
-        }
+        currentHP = maxHP;
+        isDead = false;
     }
 
-    void TakeDamage(int amount)
+    public void TakeDamage(int amount)
     {
+        if (isDead) return;
+        if (Time.time - lastHitTime < invincibleTime) return;
+        lastHitTime = Time.time;
+
         currentHP -= amount;
-        Debug.Log($"피해! 남은 체력: {currentHP}");
+        currentHP = Mathf.Clamp(currentHP, 0, maxHP);
+        Debug.Log("Damage " + amount + " → HP: " + currentHP);
 
         if (currentHP <= 0)
-        {
-            Debug.Log("사망! 게임오버 처리");
-            //Game Manager에 신호 보내기
-        }
+            Die();
     }
 
-
-
-
-    // Update is called once per frame
-    void Update()
+    void Die()
     {
-        
+        if (isDead) return;
+        isDead = true;
+        Debug.Log("Player Dead");
     }
 }

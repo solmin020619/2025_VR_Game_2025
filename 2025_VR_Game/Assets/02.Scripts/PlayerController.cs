@@ -1,84 +1,162 @@
+using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.InputSystem;
+using UnityEngine.XR;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
-    [Header("이동 설정")]
-    public float moveSpeed = 5f;        // 이동 속도
-    public float rotationSpeed = 120f;  // 마우스 회전 속도
-    public float gravity = -9.81f;      // 중력 가속도
-    public float jumpHeight = 2.5f;     // 점프 높이
+    [Header("Movement Settings")]
+    public float moveSpeed = 3.0f;
+    public float gravity = -20f;
+
+    [Header("Jump Settings")]
+    public float jumpHeight = 2f;
+    public float fallMultiplier = 2.5f;
+    public float jumpBufferTime = 0.1f;
+    private float jumpBufferCounter;
+
+    [Header("Ground Settings")]
+    public LayerMask groundMask;
+    private bool isGrounded;
 
     private CharacterController controller;
     private Vector3 velocity;
-    private bool isGrounded;
+
+    [Header("References")]
+    public Transform vrCamera;
+    public PlayerHealth health;
+
+    private InputDevice leftController;
+    private InputDevice rightController;
+
+    private Vector2 moveInput;
+    private bool jumpPressed;
 
     void Start()
     {
         controller = GetComponent<CharacterController>();
+        GetVRControllers();
 
-        // 카메라를 플레이어 머리 위치로 고정
-        Camera cam = Camera.main;
-        if (cam != null)
+        // 자동으로 메인 카메라 인식
+        if (vrCamera == null)
         {
-            cam.transform.SetParent(transform);
-            cam.transform.localPosition = new Vector3(0, 1.6f, 0);
-            cam.transform.localRotation = Quaternion.identity;
+            Camera cam = Camera.main;
+            if (cam != null)
+                vrCamera = cam.transform;
         }
+    }
+
+    void GetVRControllers()
+    {
+        var leftHandedDevices = new List<InputDevice>();
+        var rightHandedDevices = new List<InputDevice>();
+
+        InputDevices.GetDevicesAtXRNode(XRNode.LeftHand, leftHandedDevices);
+        InputDevices.GetDevicesAtXRNode(XRNode.RightHand, rightHandedDevices);
+
+        if (leftHandedDevices.Count > 0)
+            leftController = leftHandedDevices[0];
+        if (rightHandedDevices.Count > 0)
+            rightController = rightHandedDevices[0];
     }
 
     void Update()
     {
-        HandleMovement();
-        HandleRotation();
-        ApplyGravityAndJump();
+        if (!leftController.isValid || !rightController.isValid)
+            GetVRControllers();
+
+        if (health != null && health.isDead)
+            return;
+
+        ReadInput();
+        GroundCheck();
+        HandleJumpInput();
+        Move();
     }
 
-    void HandleMovement()
+    void ReadInput()
     {
-        Vector2 moveInput = Vector2.zero;
+        moveInput = Vector2.zero;
+        jumpPressed = false;
 
-        if (Keyboard.current != null)
-        {
-            if (Keyboard.current.wKey.isPressed) moveInput.y += 1;
-            if (Keyboard.current.sKey.isPressed) moveInput.y -= 1;
-            if (Keyboard.current.aKey.isPressed) moveInput.x -= 1;
-            if (Keyboard.current.dKey.isPressed) moveInput.x += 1;
-        }
+        // VR 스틱 입력
+        if (leftController.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 axis))
+            moveInput = axis;
 
-        Vector3 move = (transform.right * moveInput.x + transform.forward * moveInput.y).normalized;
-        controller.Move(move * moveSpeed * Time.deltaTime);
+        // VR 점프 버튼 (오른손 A버튼)
+        if (rightController.TryGetFeatureValue(CommonUsages.primaryButton, out bool jump))
+            jumpPressed = jump;
+
+        // 키보드 입력 (WASD + Space)
+        float horizontal = Input.GetAxisRaw("Horizontal");
+        float vertical = Input.GetAxisRaw("Vertical");
+
+        Vector2 keyboardMove = new Vector2(horizontal, vertical);
+        if (keyboardMove.sqrMagnitude > 0.01f)
+            moveInput = keyboardMove;
+
+        if (Input.GetKey(KeyCode.Space))
+            jumpPressed = true;
     }
 
-    void HandleRotation()
+    void GroundCheck()
     {
-        if (Mouse.current != null)
-        {
-            float mouseX = Mouse.current.delta.x.ReadValue() * rotationSpeed * Time.deltaTime;
-            transform.Rotate(Vector3.up * mouseX);
-        }
-    }
+        Vector3 spherePos = new Vector3(controller.bounds.center.x,
+                                        controller.bounds.min.y + 0.05f,
+                                        controller.bounds.center.z);
+        float checkRadius = Mathf.Max(controller.radius * 0.9f, 0.2f);
+        isGrounded = Physics.CheckSphere(spherePos, checkRadius, groundMask);
 
-    void ApplyGravityAndJump()
-    {
-        //  바닥 감지
-        isGrounded = controller.isGrounded;
-
-        // 바닥에 닿아있으면 낙하 속도 리셋
         if (isGrounded && velocity.y < 0)
             velocity.y = -2f;
+    }
 
-        //  점프 입력
-        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded)
+    void HandleJumpInput()
+    {
+        if (jumpPressed)
+            jumpBufferCounter = jumpBufferTime;
+        else
+            jumpBufferCounter = Mathf.Max(jumpBufferCounter - Time.deltaTime, 0);
+
+        if (isGrounded && jumpBufferCounter > 0f)
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+            jumpBufferCounter = 0;
         }
+    }
 
-        //  중력 적용
-        velocity.y += gravity * Time.deltaTime;
+    void ApplyGravity()
+    {
+        if (velocity.y < 0)
+            velocity.y += gravity * fallMultiplier * Time.deltaTime;
+        else
+            velocity.y += gravity * Time.deltaTime;
+    }
 
-        //  최종 이동 (중력까지 포함)
+    void Move()
+    {
+        if (vrCamera == null) return;
+
+        Vector3 camForward = vrCamera.forward;
+        Vector3 camRight = vrCamera.right;
+        camForward.y = 0;
+        camRight.y = 0;
+
+        Vector3 move = (camRight * moveInput.x + camForward * moveInput.y).normalized;
+        controller.Move(move * moveSpeed * Time.deltaTime);
+
+        ApplyGravity();
         controller.Move(velocity * Time.deltaTime);
+    }
+
+    void OnDrawGizmosSelected()
+    {
+        if (controller == null) return;
+        Gizmos.color = Color.green;
+        Vector3 spherePos = new Vector3(controller.bounds.center.x,
+                                        controller.bounds.min.y + 0.05f,
+                                        controller.bounds.center.z);
+        float radius = Mathf.Max(controller.radius * 0.9f, 0.2f);
+        Gizmos.DrawWireSphere(spherePos, radius);
     }
 }
