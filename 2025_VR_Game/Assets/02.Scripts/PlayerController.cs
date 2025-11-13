@@ -37,7 +37,7 @@ public class PlayerController : MonoBehaviour
         controller = GetComponent<CharacterController>();
         GetVRControllers();
 
-        // ÀÚµ¿À¸·Î ¸ÞÀÎ Ä«¸Þ¶ó ÀÎ½Ä
+        // ï¿½Úµï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Ä«ï¿½Þ¶ï¿½ ï¿½Î½ï¿½
         if (vrCamera == null)
         {
             Camera cam = Camera.main;
@@ -79,15 +79,15 @@ public class PlayerController : MonoBehaviour
         moveInput = Vector2.zero;
         jumpPressed = false;
 
-        // VR ½ºÆ½ ÀÔ·Â
+        // VR ï¿½ï¿½Æ½ ï¿½Ô·ï¿½
         if (leftController.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 axis))
             moveInput = axis;
 
-        // VR Á¡ÇÁ ¹öÆ° (¿À¸¥¼Õ A¹öÆ°)
+        // VR ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ° (ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Aï¿½ï¿½Æ°)
         if (rightController.TryGetFeatureValue(CommonUsages.primaryButton, out bool jump))
             jumpPressed = jump;
 
-        // Å°º¸µå ÀÔ·Â (WASD + Space)
+        // Å°ï¿½ï¿½ï¿½ï¿½ ï¿½Ô·ï¿½ (WASD + Space)
         float horizontal = Input.GetAxisRaw("Horizontal");
         float vertical = Input.GetAxisRaw("Vertical");
 
@@ -159,4 +159,4 @@ public class PlayerController : MonoBehaviour
         float radius = Mathf.Max(controller.radius * 0.9f, 0.2f);
         Gizmos.DrawWireSphere(spherePos, radius);
     }
-}
+} 
