@@ -4,9 +4,9 @@ using UnityEngine;
 public class VR_SpikeTrap : MonoBehaviour
 {
     [Header("Spike Move")]
-    public Transform spikes;            // 움직이는 스파이크(메쉬/트리거가 붙은 오브젝트)
-    public Transform spikeStartPos;     // 내려간 위치(Empty)
-    public Transform spikeUpPos;        // 올라간 위치(Empty)
+    public Transform spikes;
+    public Transform spikeStartPos;
+    public Transform spikeUpPos;
 
     public float riseTime = 0.3f;
     public float stayTime = 0.6f;
@@ -15,20 +15,22 @@ public class VR_SpikeTrap : MonoBehaviour
 
     [Header("Damage")]
     public int damage = 20;
-    public float damageCooldown = 0.5f;   // 연속 데미지 방지
-    public string playerTag = "Player";   // 태그 쓰고 싶으면 유지
+    public float damageCooldown = 0.5f;
 
-    private bool isUp;
-    private float lastHitTime = -999f;
+    [Header("Hit Filter")]
+    public LayerMask playerLayers = ~0;   // 필요하면 Player 레이어만 체크
+    public bool requirePlayerHealth = true;
 
-    private void Start()
+    bool isUp;
+    float nextDamageTime = -999f;
+
+    void Start()
     {
         if (spikes == null) spikes = transform;
 
-        // 필수 포지션 없으면 움직임 자체를 막아버림(에러 방지)
         if (spikeStartPos == null || spikeUpPos == null)
         {
-            Debug.LogError($"[{name}] spikeStartPos / spikeUpPos가 비어있음! Empty 두 개 넣어줘.");
+            Debug.LogError($"[{name}] spikeStartPos / spikeUpPos 비어있음");
             enabled = false;
             return;
         }
@@ -37,17 +39,16 @@ public class VR_SpikeTrap : MonoBehaviour
         StartCoroutine(TrapLoop());
     }
 
-    private IEnumerator TrapLoop()
+    IEnumerator TrapLoop()
     {
         while (true)
         {
-            // 올라오기
+            isUp = false;
             yield return MoveSpike(spikeStartPos.position, spikeUpPos.position, riseTime);
-            isUp = true;
 
+            isUp = true;
             yield return new WaitForSeconds(stayTime);
 
-            // 내려가기
             isUp = false;
             yield return MoveSpike(spikeUpPos.position, spikeStartPos.position, downTime);
 
@@ -55,7 +56,7 @@ public class VR_SpikeTrap : MonoBehaviour
         }
     }
 
-    private IEnumerator MoveSpike(Vector3 from, Vector3 to, float duration)
+    IEnumerator MoveSpike(Vector3 from, Vector3 to, float duration)
     {
         float t = 0f;
         float inv = 1f / Mathf.Max(duration, 0.0001f);
@@ -70,33 +71,29 @@ public class VR_SpikeTrap : MonoBehaviour
         spikes.position = to;
     }
 
-    private void OnTriggerEnter(Collider other) => TryDamage(other);
-    private void OnTriggerStay(Collider other) => TryDamage(other);
+    void OnTriggerEnter(Collider other) => TryDamage(other);
+    void OnTriggerStay(Collider other) => TryDamage(other);
 
-    private void TryDamage(Collider other)
+    void TryDamage(Collider other)
     {
         if (!isUp) return;
+        if (Time.time < nextDamageTime) return;
 
-        // 쿨다운 (OnTriggerStay로 프레임마다 깎이는거 방지)
-        if (Time.time - lastHitTime < damageCooldown) return;
+        // 1) 레이어로 1차 필터 (선택)
+        if (((1 << other.gameObject.layer) & playerLayers.value) == 0)
+            return;
 
-        // 1) 태그가 Player면 OK
-        // 2) 태그가 아니어도 PlayerHealth가 부모에 있으면 OK (XR 구조 대응)
-        PlayerHealth health = null;
+        // 2) XR 구조 대응: 부모까지 포함해서 PlayerHealth 탐색
+        var health = other.GetComponentInParent<PlayerHealth>();
 
-        if (other.CompareTag(playerTag))
+        if (requirePlayerHealth && health == null)
+            return;
+
+        if (health != null)
         {
-            health = other.GetComponentInParent<PlayerHealth>();
+            health.TakeDamage(damage);
+            nextDamageTime = Time.time + damageCooldown;
+            Debug.Log($"[SpikeTrap] HIT {other.name} -{damage}");
         }
-        else
-        {
-            // 태그 안 맞아도 부모에 PlayerHealth 있으면 맞는 걸로 처리
-            health = other.GetComponentInParent<PlayerHealth>();
-        }
-
-        if (health == null) return;
-
-        health.TakeDamage(damage);
-        lastHitTime = Time.time;
     }
 }
