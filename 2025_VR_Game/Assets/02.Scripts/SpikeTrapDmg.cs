@@ -46,21 +46,14 @@ public class SpikeTrapDmg : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        // 플레이어에 PlayerHealth 스크립트가 붙어있는지 확인
-        PlayerHealth player = other.GetComponent<PlayerHealth>();
-        if (player != null)
-        {
-            TryDamage(player);
-        }
+        var player = other.GetComponentInParent<PlayerHealth>();
+        if (player != null) TryDamage(player);
     }
 
     private void OnTriggerStay(Collider other)
     {
-        PlayerHealth player = other.GetComponent<PlayerHealth>();
-        if (player != null)
-        {
-            TryDamage(player);
-        }
+        var player = other.GetComponentInParent<PlayerHealth>();
+        if (player != null) TryDamage(player);
     }
 
     private void TryDamage(PlayerHealth player)

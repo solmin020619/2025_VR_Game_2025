@@ -1,6 +1,9 @@
+ï»¿using System.Collections;
+using Unity.XR.CoreUtils;
 using UnityEngine;
-using UnityEngine.UI; // ¡Ú 1. ÀÌ°Ô Ãß°¡µÊ (±ÛÀÚ Á¦¾î¿ë)
-using UnityEngine.SceneManagement; // ¡Ú 2. ÀÌ°Ô Ãß°¡µÊ (Á×À¸¸é Àç½ÃÀÛ)
+using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.XR.Interaction.Toolkit.Locomotion;
 
 public class PlayerHealth : MonoBehaviour
 {
@@ -11,32 +14,59 @@ public class PlayerHealth : MonoBehaviour
     public float invincibleTime = 0.3f;
     private float lastHitTime = -999f;
 
-    // ¡Ú 3. ÀÎ½ºÆåÅÍ¿¡¼­ ÅØ½ºÆ®¸¦ ¿¬°áÇÒ ±¸¸ÛÀ» ¶Õ¾îÁÜ
     public Text hpText;
+
+    [Header("Respawn")]
+    public Transform respawnPoint;
+    public float respawnDelay = 0.2f;
+    public float respawnInvincible = 1.0f;
+
+    XROrigin xrOrigin;
+    CharacterController cc;
+    LocomotionProvider[] locomotionProviders;
+
+    bool respawning;
+
+    void Awake()
+    {
+        // âœ… ì–´ë””ì— ë¶™ì–´ìˆë“  XROriginì„ ë¶€ëª¨ì—ì„œ ì°¾ìŒ
+        xrOrigin = GetComponentInParent<XROrigin>();
+        if (xrOrigin == null) xrOrigin = FindObjectOfType<XROrigin>();
+
+        // âœ… ìºë¦­í„°ì»¨íŠ¸ë¡¤ëŸ¬ë„ XROriginìª½ì—ì„œ ì°¾ëŠ”ê²Œ ì•ˆì „
+        if (xrOrigin != null)
+        {
+            cc = xrOrigin.GetComponent<CharacterController>();
+            if (cc == null) cc = xrOrigin.GetComponentInChildren<CharacterController>(true);
+        }
+        else
+        {
+            cc = GetComponentInParent<CharacterController>();
+        }
+
+        // âœ… ì´ë™/íšŒì „/í…”í¬ ê°™ì€ ë¡œì½”ëª¨ì…˜ providerë“¤ (MoveProvider/TurnProvider ë“±)
+        locomotionProviders = FindObjectsOfType<LocomotionProvider>(true);
+    }
 
     void Start()
     {
         currentHP = maxHP;
         isDead = false;
-        UpdateUI(); // ½ÃÀÛÇÏÀÚ¸¶ÀÚ HP: 100 ¶ç¿ì±â
+        UpdateUI();
     }
 
     public void TakeDamage(int amount)
     {
-        if (isDead) return;
+        if (isDead || respawning) return;
         if (Time.time - lastHitTime < invincibleTime) return;
+
         lastHitTime = Time.time;
 
-        currentHP -= amount;
-        currentHP = Mathf.Clamp(currentHP, 0, maxHP);
-
-        Debug.Log("Damage " + amount + " ¡æ HP: " + currentHP);
-
-        // ¡Ú 4. ¸ÂÀ» ¶§¸¶´Ù È­¸é ±Û¾¾ °»½Å!
+        currentHP = Mathf.Clamp(currentHP - amount, 0, maxHP);
+        Debug.Log("Damage " + amount + " â†’ HP: " + currentHP);
         UpdateUI();
 
-        if (currentHP <= 0)
-            Die();
+        if (currentHP <= 0) Die();
     }
 
     void Die()
@@ -44,17 +74,70 @@ public class PlayerHealth : MonoBehaviour
         if (isDead) return;
         isDead = true;
         Debug.Log("Player Dead");
-
-        // ¡Ú 5. Á×À¸¸é ÇöÀç ¾À Àç½ÃÀÛ (·çÇÁ)
-        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        StartCoroutine(RespawnRoutine());
     }
 
-    // ¡Ú 6. È­¸é ±Û¾¾ ¹Ù²Ù´Â ÇÔ¼ö
+    IEnumerator RespawnRoutine()
+    {
+        respawning = true;
+
+        yield return new WaitForSeconds(respawnDelay);
+
+        // 1) ë¡œì½”ëª¨ì…˜ ì ê¹ ë„ê¸° (ë¦¬ìŠ¤í° ì§í›„ ë‹¤ì‹œ ë°€ë¦¬ëŠ” í˜„ìƒ ë°©ì§€)
+        SetLocomotionProviders(false);
+
+        // 2) CC ì ê¹ ë„ê¸° (ì¶©ëŒ íŠ•ê¹€ ë°©ì§€)
+        if (cc) cc.enabled = false;
+
+        // 3) ë¦¬ìŠ¤í° ì´ë™ (XROriginì„ "ì¹´ë©”ë¼ ê¸°ì¤€"ìœ¼ë¡œ ì´ë™)
+        if (respawnPoint != null && xrOrigin != null)
+        {
+            xrOrigin.MoveCameraToWorldLocation(respawnPoint.position);
+
+            // ë°©í–¥ë„ ë§ì¶”ê³  ì‹¶ìœ¼ë©´ Yë§Œ ë§ì¶”ê¸°
+            Vector3 e = xrOrigin.transform.eulerAngles;
+            xrOrigin.transform.rotation = Quaternion.Euler(0f, respawnPoint.eulerAngles.y, 0f);
+        }
+        else if (respawnPoint != null)
+        {
+            // í˜¹ì‹œ xrOrigin ëª»ì°¾ì•˜ì„ ë•Œ ì•ˆì „ì¥ì¹˜
+            transform.SetPositionAndRotation(respawnPoint.position, respawnPoint.rotation);
+        }
+        else
+        {
+            Debug.LogWarning("[PlayerHealth] respawnPointê°€ ì—°ê²° ì•ˆ ë¨.");
+        }
+
+        yield return null; // 1í”„ë ˆì„ ì•ˆì •í™”
+
+        // 4) ë‹¤ì‹œ ì¼œê¸°
+        if (cc) cc.enabled = true;
+        SetLocomotionProviders(true);
+
+        // 5) HP ì´ˆê¸°í™”
+        currentHP = maxHP;
+        UpdateUI();
+
+        // 6) ë¦¬ìŠ¤í° ì§í›„ ë¬´ì 
+        lastHitTime = Time.time;
+        yield return new WaitForSeconds(respawnInvincible);
+
+        isDead = false;
+        respawning = false;
+    }
+
+    void SetLocomotionProviders(bool enabled)
+    {
+        if (locomotionProviders == null) return;
+        foreach (var p in locomotionProviders)
+        {
+            if (p == null) continue;
+            p.enabled = enabled;
+        }
+    }
+
     void UpdateUI()
     {
-        if (hpText != null)
-        {
-            hpText.text = "HP: " + currentHP;
-        }
+        if (hpText != null) hpText.text = "HP: " + currentHP;
     }
 }
